@@ -438,6 +438,11 @@ spec:
       chmod +x scripts/script-build.sh
 
       if ! [[ $IS_LOCALHOST ]]; then
+        PRIVILEGED_NESTED_FLAG=""
+        if [[ "${PRIVILEGED_NESTED}" == "true" ]]; then
+          ssh $SSH_ARGS "$SSH_HOST"  mkdir -p "$BUILD_DIR/var/tmp"
+          PRIVILEGED_NESTED_FLAG="--privileged --mount type=bind,source=$BUILD_DIR/var/tmp,target=/var/tmp,relabel=shared"
+        fi
         rsync -ra scripts "$SSH_HOST:$BUILD_DIR"
         ssh $SSH_ARGS "$SSH_HOST" $PORT_FORWARD podman  run $PODMAN_PORT_FORWARD \
           --tmpfs /run/secrets \
@@ -470,6 +475,7 @@ spec:
           -v "$BUILD_DIR/.docker/:/root/.docker:Z" \
           -v "$BUILD_DIR/results/:/tekton/results:Z" \
           -v "$BUILD_DIR/scripts:/scripts:Z" \
+          "$PRIVILEGED_NESTED_FLAG" \
           --user=0  --rm  "$BUILDER_IMAGE" /scripts/script-build.sh "$@"
         rsync -ra "$SSH_HOST:$BUILD_DIR/workspaces/source/" "$(workspaces.source.path)/"
         rsync -ra "$SSH_HOST:$BUILD_DIR/volumes/shared/" /shared/

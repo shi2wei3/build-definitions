@@ -234,12 +234,19 @@ if ! [[ $IS_LOCALHOST ]]; then
 			}
 		}
 		ret += "\nif ! [[ $IS_LOCALHOST ]]; then"
+		ret += "\n"
+		ret += `  PRIVILEGED_NESTED_FLAG=""
+  if [[ "${PRIVILEGED_NESTED}" == "true" ]]; then
+    ssh $SSH_ARGS "$SSH_HOST"  mkdir -p "$BUILD_DIR/var/tmp"
+    PRIVILEGED_NESTED_FLAG="--privileged --mount type=bind,source=$BUILD_DIR/var/tmp,target=/var/tmp,relabel=shared"
+  fi`
 		ret += "\n  rsync -ra scripts \"$SSH_HOST:$BUILD_DIR\""
 		containerScript := "scripts/script-" + step.Name + ".sh"
 		for _, e := range step.Env {
 			env += "    -e " + e.Name + "=\"$" + e.Name + "\" \\\n"
 		}
 		podmanArgs += "    -v \"$BUILD_DIR/scripts:/scripts:Z\" \\\n"
+		podmanArgs += "    \"$PRIVILEGED_NESTED_FLAG\" \\\n"
 		ret += "\n  ssh $SSH_ARGS \"$SSH_HOST\" $PORT_FORWARD podman  run " + env + "" + podmanArgs + "    --user=0  --rm  \"$BUILDER_IMAGE\" /" + containerScript + ` "$@"`
 
 		// Sync the contents of the workspaces back so subsequent tasks can use them

@@ -119,6 +119,12 @@ spec:
     description: Additional key=value labels that should be applied to the image
     name: LABELS
     type: array
+  - default: "false"
+    description: Whether to use privileged nested containers when run remotely, this
+      will add --privileged to podman run and --security-opt=label=disable --cap-add=all
+      --device=/dev/fuse to buildah build
+    name: PRIVILEGED_NESTED
+    type: string
   - description: The platform to build on
     name: PLATFORM
     type: string
@@ -185,6 +191,8 @@ spec:
       value: $(params.SQUASH)
     - name: SKIP_UNUSED_STAGES
       value: $(params.SKIP_UNUSED_STAGES)
+    - name: PRIVILEGED_NESTED
+      value: $(params.PRIVILEGED_NESTED)
     - name: BUILDER_IMAGE
       value: quay.io/konflux-ci/buildah-task:latest@sha256:b2d6c32d1e05e91920cd4475b2761d58bb7ee11ad5dff3ecb59831c7572b4d0c
     - name: PLATFORM
@@ -382,6 +390,12 @@ spec:
 
       BUILDAH_ARGS+=("${BUILD_ARG_FLAGS[@]}")
 
+      if [ "${PRIVILEGED_NESTED}" == "true" ]; then
+        BUILDAH_ARGS+=("--security-opt=label=disable")
+        BUILDAH_ARGS+=("--cap-add=all")
+        BUILDAH_ARGS+=("--device=/dev/fuse")
+      fi
+
       if [ -n "${ADD_CAPABILITIES}" ]; then
         BUILDAH_ARGS+=("--cap-add=${ADD_CAPABILITIES}")
       fi
@@ -552,6 +566,11 @@ spec:
       chmod +x scripts/script-build.sh
 
       if ! [[ $IS_LOCALHOST ]]; then
+        PRIVILEGED_NESTED_FLAG=""
+        if [[ "${PRIVILEGED_NESTED}" == "true" ]]; then
+          ssh $SSH_ARGS "$SSH_HOST"  mkdir -p "$BUILD_DIR/var/tmp"
+          PRIVILEGED_NESTED_FLAG="--privileged --mount type=bind,source=$BUILD_DIR/var/tmp,target=/var/tmp,relabel=shared"
+        fi
         rsync -ra scripts "$SSH_HOST:$BUILD_DIR"
         ssh $SSH_ARGS "$SSH_HOST" $PORT_FORWARD podman  run $PODMAN_PORT_FORWARD \
           --tmpfs /run/secrets \
@@ -574,6 +593,7 @@ spec:
           -e ADD_CAPABILITIES="$ADD_CAPABILITIES" \
           -e SQUASH="$SQUASH" \
           -e SKIP_UNUSED_STAGES="$SKIP_UNUSED_STAGES" \
+          -e PRIVILEGED_NESTED="$PRIVILEGED_NESTED" \
           -e COMMIT_SHA="$COMMIT_SHA" \
           -e DOCKERFILE="$DOCKERFILE" \
           -v "$BUILD_DIR/workspaces/source:$(workspaces.source.path):Z" \
@@ -585,6 +605,7 @@ spec:
           -v "$BUILD_DIR/.docker/:/root/.docker:Z" \
           -v "$BUILD_DIR/results/:/tekton/results:Z" \
           -v "$BUILD_DIR/scripts:/scripts:Z" \
+          "$PRIVILEGED_NESTED_FLAG" \
           --user=0  --rm  "$BUILDER_IMAGE" /scripts/script-build.sh "$@"
         rsync -ra "$SSH_HOST:$BUILD_DIR/workspaces/source/" "$(workspaces.source.path)/"
         rsync -ra "$SSH_HOST:$BUILD_DIR/volumes/shared/" /shared/
